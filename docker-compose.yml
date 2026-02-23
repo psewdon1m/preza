@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: ./api
+    environment:
+      DATA_DIR: /data
+      PDF_RENDER_DPI: ${PDF_RENDER_DPI:-300}
+    volumes:
+      - presentation_data:/data
+    restart: unless-stopped
+
+  proxy:
+    build:
+      context: ./proxy
+    depends_on:
+      - api
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+    volumes:
+      - ./nginx/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./web:/srv/web:ro
+      - presentation_data:/presentation:ro
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["ops"]
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+
+volumes:
+  presentation_data:
+  letsencrypt:
+  certbot_www:

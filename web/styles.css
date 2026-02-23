@@ -1,0 +1,149 @@
+:root {
+  color-scheme: light;
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --text: #15181d;
+  --muted: #667085;
+  --border: #d8dde6;
+  --danger: #b42318;
+  --shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.viewer-page {
+  background: #e8eaee;
+}
+
+.viewer {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+  padding: 12px 8px 24px;
+}
+
+.viewer .slide {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 0 12px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.status {
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.admin {
+  width: min(100%, 920px);
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.admin h1 {
+  margin: 0 0 16px;
+  font-size: 24px;
+}
+
+.admin h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+input[type="file"] {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+button {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #f3f5f8;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button.danger {
+  border-color: #f0b4b0;
+  color: var(--danger);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.hint {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.slide-list {
+  margin: 0;
+  padding-left: 20px;
+  word-break: break-all;
+}
+
+.slide-list li {
+  margin: 4px 0;
+}
+
+.message {
+  min-height: 20px;
+  color: var(--muted);
+}
+
+.message.error {
+  color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .admin {
+    padding: 10px;
+  }
+
+  .panel {
+    padding: 12px;
+  }
+}
+

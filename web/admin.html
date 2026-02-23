@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>panel</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="admin-page">
+  <main class="admin">
+    <h1>Загрузка презентации</h1>
+
+    <form id="upload-form" class="panel">
+      <label for="pdf-file">PDF файл</label>
+      <input id="pdf-file" name="file" type="file" accept="application/pdf,.pdf" required>
+      <button type="submit">Загрузить</button>
+      <p class="hint">Разрешен только один PDF. Для замены сначала удалите текущую презентацию.</p>
+    </form>
+
+    <section class="panel">
+      <h2>Текущее состояние</h2>
+      <div id="summary">Загрузка...</div>
+      <div class="actions">
+        <button id="refresh-btn" type="button">Обновить</button>
+        <button id="delete-btn" type="button" class="danger">Удалить презентацию</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Слайды</h2>
+      <ol id="slide-list" class="slide-list"></ol>
+    </section>
+
+    <div id="message" class="message" aria-live="polite"></div>
+  </main>
+  <script src="/admin.js"></script>
+</body>
+</html>
