@@ -21,9 +21,15 @@ fi
 echo "Issuing certificate for ${DOMAIN}"
 echo "Make sure DNS A-record points to this server and port 80 is reachable."
 
+if ! ${COMPOSE} ps --status running proxy | grep -q "proxy"; then
+  echo "ERROR: proxy container is not running."
+  echo "Run deployment first: ./scripts/deploy.sh"
+  exit 1
+fi
+
 # If nginx started with a temporary self-signed cert, remove placeholder lineage
 # before the first Certbot issuance so Certbot can create its own live/archive links.
-${COMPOSE} run --rm certbot sh -lc "
+${COMPOSE} run --rm --entrypoint sh certbot -lc "
   if [ ! -f /etc/letsencrypt/renewal/${DOMAIN}.conf ]; then
     rm -rf /etc/letsencrypt/live/${DOMAIN} /etc/letsencrypt/archive/${DOMAIN}
   fi
