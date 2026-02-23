@@ -52,7 +52,7 @@ chmod +x scripts/*.sh
 Важно:
 
 - Для реального SSL нужен публичный домен.
-- DNS `A` запись домена должна указывать на сервер (для вашего случая: `loki-panel.shmoza.net -> 199.68.196.107`).
+- DNS `A` запись домена должна указывать на сервер (для вашего случая: `preza.shmoza.net -> 199.68.196.107`).
 - На сервере должны быть доступны `80/443`.
 - После первого запуска контейнер `nginx` стартует с временным self-signed сертификатом (чтобы сервис поднялся).
 - Затем получите боевой сертификат командой:
@@ -61,7 +61,7 @@ chmod +x scripts/*.sh
 
 ```bash
 docker compose --env-file .env.production up -d --build
-docker compose --env-file .env.production run --rm certbot certonly --webroot -w /var/www/certbot -d loki-panel.shmoza.net --email you@example.com --agree-tos --no-eff-email
+docker compose --env-file .env.production run --rm certbot certonly --webroot -w /var/www/certbot -d preza.shmoza.net --email you@example.com --agree-tos --no-eff-email
 docker compose --env-file .env.production exec proxy nginx -s reload
 ```
 
