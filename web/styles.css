@@ -34,9 +34,9 @@ body {
   display: block;
   width: 100%;
   height: auto;
-  margin: 0 0 12px;
+  margin: 0;
   background: white;
-  box-shadow: var(--shadow);
+  box-shadow: none;
 }
 
 .status {
@@ -146,4 +146,3 @@ button.danger {
     padding: 12px;
   }
 }
-
