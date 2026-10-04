@@ -12,6 +12,7 @@ function closeEvents() {
 
 function showStatus(text) {
   closeEvents();
+  document.body.classList.remove("individual-view");
   presentation = null;
   rendered = "";
   $("viewer").replaceChildren();
@@ -78,6 +79,7 @@ function render() {
   $("prev-slide").disabled = live || !connected || index <= 0;
   $("next-slide").disabled = live || !connected || index >= presentation.slide_count - 1;
   $("slide-count").textContent = (index + 1) + " / " + presentation.slide_count;
+  document.body.classList.toggle("individual-view", displayMode === "slides");
   $("viewer").classList.toggle("individual", displayMode === "slides");
   const signature = [presentation.id, presentation.content_version, displayMode, live,
     displayMode === "slides" ? index : ""].join("|");
