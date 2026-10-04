@@ -1,0 +1,10 @@
+.git
+.nginx
+.env*
+.keys
+dist
+.test-output
+**/__pycache__
+**/.pytest_cache
+**/.venv
+PART_*.md

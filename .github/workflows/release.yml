@@ -1,0 +1,93 @@
+name: Signed Preza release
+on:
+  push:
+    tags: ["preza-v*"]
+permissions:
+  contents: read
+concurrency:
+  group: preza-release
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: docker build --target test -t preza-test -f api/Dockerfile .
+      - run: docker run --rm preza-test
+  publish:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Validate release identity and signing configuration
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SIGNING_KEY: ${{ secrets.PREZA_RELEASE_SIGNING_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os, re, pathlib, subprocess
+          tag = os.environ["RELEASE_TAG"]
+          if not re.fullmatch(r"preza-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", tag):
+              raise SystemExit("Invalid qualified release tag")
+          key = os.environ["RELEASE_SIGNING_KEY"]
+          if not key:
+              raise SystemExit("Configure PREZA_RELEASE_SIGNING_KEY in the release environment")
+          path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "preza-signing.pem"
+          path.write_text(key)
+          path.chmod(0o600)
+          expected = subprocess.check_output([
+              "openssl", "pkey", "-pubin", "-in", ".release/public-key.pem", "-outform", "DER"],
+              stdin=subprocess.DEVNULL, timeout=30)
+          actual = subprocess.check_output([
+              "openssl", "pkey", "-in", str(path), "-passin", "pass:", "-pubout", "-outform", "DER"],
+              stdin=subprocess.DEVNULL, timeout=30)
+          if actual != expected:
+              raise SystemExit("Signing key does not match .release/public-key.pem")
+          print("Release signing key matches the pinned public key")
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write("PREZA_VERSION=" + tag.removeprefix("preza-v") + "\n")
+          PY
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish immutable application image
+        run: |
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            --file api/Dockerfile --target runtime \
+            --build-arg "PREZA_VERSION=$PREZA_VERSION" \
+            --tag "ghcr.io/psewdon1m/preza:$PREZA_VERSION" \
+            --metadata-file "$RUNNER_TEMP/preza-image.json" --push .
+      - name: Sign and publish exact-version bootstrap and installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          digest="$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/preza-image.json"))["containerimage.digest"])')"
+          python3 scripts/build_release.py --version "$PREZA_VERSION" \
+            --image "ghcr.io/psewdon1m/preza@$digest" \
+            --signing-key "$RUNNER_TEMP/preza-signing.pem" --output dist
+          sh -n dist/bootstrap.sh
+          python3 - <<'PY'
+          import os, pathlib
+          version = os.environ["PREZA_VERSION"]
+          pathlib.Path("dist/notes.md").write_text(
+              "Preza " + version + "\n\nSigned installer and immutable image for Linux amd64/arm64.\n\n"
+              "Prepare: curl -fsSL https://github.com/psewdon1m/preza/releases/download/preza-v" +
+              version + "/bootstrap.sh | sudo sh\n\n"
+              "Then edit /opt/exocortex/preza/.env and run sudo preza-install.\n")
+          PY
+          gh release create "$RELEASE_TAG" --verify-tag --title "Preza $PREZA_VERSION" \
+            --notes-file dist/notes.md \
+            dist/bootstrap.sh dist/release.json dist/release.json.sig \
+            "dist/preza-$PREZA_VERSION-install.tar.gz"
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/preza-signing.pem"

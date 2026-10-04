@@ -1,0 +1,31 @@
+#!/bin/sh
+# Generated for one immutable preza-v@@VERSION@@ release. Never use a branch URL.
+set -eu
+umask 077
+[ "$(id -u)" -eq 0 ] || { echo "Run with sudo sh" >&2; exit 1; }
+[ "$(uname -s)" = Linux ] || { echo "Linux is required" >&2; exit 1; }
+case "$(uname -m)" in x86_64|aarch64) ;; *) echo "Unsupported architecture" >&2; exit 1 ;; esac
+[ -f /etc/os-release ] || { echo "Unsupported OS" >&2; exit 1; }
+if ! grep -Eq '^ID=(debian|ubuntu|"(debian|ubuntu)")$' /etc/os-release; then
+  echo "Only Debian/Ubuntu is supported" >&2; exit 1
+fi
+version_id="$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"')"
+major="${version_id%%.*}"
+case "$major" in ''|*[!0-9]*) echo "Unsupported OS version" >&2; exit 1 ;; esac
+if grep -Eq '^ID="?debian"?$' /etc/os-release; then
+  [ "$major" -ge 12 ] || { echo "Debian 12+ is required" >&2; exit 1; }
+else
+  [ "$major" -ge 22 ] || { echo "Ubuntu 22.04+ is required" >&2; exit 1; }
+fi
+if ! command -v python3 >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || [ ! -f /etc/ssl/certs/ca-certificates.crt ]; then
+  apt-get update
+  apt-get install -y --no-install-recommends python3 openssl curl ca-certificates
+fi
+python3 - <<'PREZA_BOOTSTRAP_PY'
+@@VERIFIER@@
+@@BOOTSTRAP@@
+try:
+    bootstrap("@@VERSION@@", """@@PUBLIC_KEY@@""")
+except Exception as error:
+    raise SystemExit("Bootstrap failed: " + str(error))
+PREZA_BOOTSTRAP_PY

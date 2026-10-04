@@ -1,0 +1,32 @@
+name: preza
+services:
+  api:
+    image: ${PREZA_IMAGE:?Verified immutable image is required}
+    ports:
+      - "127.0.0.1:${LISTEN_PORT:?}:8000"
+    env_file:
+      - path: ${PREZA_ROOT:?}/runtime.env
+        format: raw
+    volumes:
+      - presentation_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=300m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    restart: unless-stopped
+volumes:
+  presentation_data:
+    name: ${DATA_VOLUME:?}

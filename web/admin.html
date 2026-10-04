@@ -3,36 +3,80 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>panel</title>
-  <link rel="stylesheet" href="/styles.css">
+  <title>Preza — управление презентациями</title>
+  <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body class="admin-page">
-  <main class="admin">
-    <h1>Загрузка презентации</h1>
-
-    <form id="upload-form" class="panel">
-      <label for="pdf-file">PDF файл</label>
-      <input id="pdf-file" name="file" type="file" accept="application/pdf,.pdf" required>
-      <button type="submit">Загрузить</button>
-      <p class="hint">Разрешен только один PDF. Для замены сначала удалите текущую презентацию.</p>
+  <section id="login-panel" class="login-card">
+    <a class="brand" href="/admin">preza<span>●</span></a>
+    <h1>Ваши презентации</h1>
+    <p class="muted">Войдите, чтобы публиковать презентации и управлять показом.</p>
+    <form id="login-form">
+      <label for="access-key">Access Key</label>
+      <input id="access-key" type="password" autocomplete="current-password" required>
+      <button type="submit" class="primary">Войти</button>
+      <p id="login-message" class="message" role="status"></p>
     </form>
-
-    <section class="panel">
-      <h2>Текущее состояние</h2>
-      <div id="summary">Загрузка...</div>
-      <div class="actions">
-        <button id="refresh-btn" type="button">Обновить</button>
-        <button id="delete-btn" type="button" class="danger">Удалить презентацию</button>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Слайды</h2>
-      <ol id="slide-list" class="slide-list"></ol>
-    </section>
-
-    <div id="message" class="message" aria-live="polite"></div>
+  </section>
+  <main id="admin-app" class="admin-shell" hidden>
+    <header class="admin-header">
+      <div><a class="brand" href="/admin">preza<span>●</span></a><span class="header-caption">Презентации</span></div>
+      <button id="logout-btn" class="quiet" type="button">Выйти</button>
+    </header>
+    <div class="workspace">
+      <aside class="library">
+        <div class="section-heading"><h1>Библиотека</h1><span id="library-count" class="count">0</span></div>
+        <button id="new-btn" type="button" class="primary full">+ Новая презентация</button>
+        <label class="sr-only" for="search">Найти презентацию</label>
+        <input id="search" type="search" placeholder="Найти презентацию" autocomplete="off">
+        <div id="presentation-list" class="presentation-list"></div>
+      </aside>
+      <section class="editor">
+        <div id="welcome" class="welcome">
+          <span class="eyebrow">Одна ссылка — вся презентация</span>
+          <h2>Поделитесь своей идеей</h2>
+          <p class="muted">Загрузите PDF, выберите вид просмотра и отправьте ссылку зрителям.</p>
+          <button id="welcome-new-btn" type="button" class="primary">Создать презентацию</button>
+        </div>
+        <div id="editor-content" hidden>
+          <div class="section-heading"><h2 id="editor-heading">Новая презентация</h2><span id="live-badge" class="live-badge" hidden>Идет показ</span></div>
+          <form id="presentation-form">
+            <div class="form-grid">
+              <div class="field"><label for="title">Название</label><input id="title" maxlength="200" required placeholder="Например, Итоги квартала"></div>
+              <div class="field"><label for="slug">Адрес страницы</label><div class="slug-field"><span>/p/</span><input id="slug" maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*" required autocomplete="off"></div></div>
+              <div class="field"><label for="default-mode">Вид по умолчанию</label><select id="default-mode"><option value="scroll">Непрерывная лента</option><option value="slides">Отдельные слайды</option></select></div>
+              <div class="field"><label for="password-action">Доступ к презентации</label><select id="password-action"><option value="remove">Без пароля</option><option value="set">Задать пароль</option><option value="keep" hidden>Сохранить текущий пароль</option></select></div>
+              <div id="password-field" class="field" hidden><label for="presentation-password">Пароль для зрителей</label><input id="presentation-password" type="password" autocomplete="new-password" placeholder="Любой пароль, например 1111"></div>
+            </div>
+            <label class="checkbox"><input id="allow-switch" type="checkbox" checked>Зрители могут переключать вид просмотра</label>
+            <div class="upload-area">
+              <label id="file-label" for="pdf-file">PDF-презентация</label>
+              <input id="pdf-file" type="file" accept="application/pdf,.pdf">
+              <p id="file-hint" class="hint">До 256 МБ и 500 страниц.</p>
+            </div>
+            <label id="start-live-field" class="checkbox"><input id="start-live" type="checkbox">Начать управляемый показ после публикации</label>
+            <div class="actions">
+              <button id="save-btn" type="submit" class="primary">Опубликовать</button>
+              <a id="open-link" class="button" target="_blank" rel="noopener" hidden>Открыть страницу ↗</a>
+              <button id="copy-btn" type="button" hidden>Копировать ссылку</button>
+              <button id="delete-btn" type="button" class="danger" hidden>Удалить</button>
+            </div>
+          </form>
+          <section id="preview-panel" class="preview-panel" hidden>
+            <div class="section-heading"><h3>Превью и показ</h3><button id="live-btn" type="button">Начать показ</button></div>
+            <p id="preview-hint" class="hint">Просмотрите слайды перед началом показа.</p>
+            <div class="preview-canvas"><img id="preview-image" alt="Превью слайда"></div>
+            <div class="slide-controls">
+              <button id="preview-prev" type="button" aria-label="Предыдущий слайд">←</button>
+              <span id="preview-count" aria-live="polite">1 / 1</span>
+              <button id="preview-next" type="button" aria-label="Следующий слайд">→</button>
+            </div>
+          </section>
+        </div>
+        <p id="message" class="message" role="status" aria-live="polite"></p>
+      </section>
+    </div>
   </main>
-  <script src="/admin.js"></script>
+  <script src="/assets/admin.js"></script>
 </body>
 </html>

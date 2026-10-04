@@ -4,4 +4,13 @@ __pycache__/
 *.pyd
 .venv/
 .env
+.env.*.local
+runtime.env
+deployment.lock
+.keys/
+dist/
+.test-output/
+.pytest_cache/
+*.pem
+!**/public-key.pem
 

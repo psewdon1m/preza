@@ -3,13 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>view</title>
-  <link rel="stylesheet" href="/styles.css">
+  <title>Preza</title>
+  <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body class="viewer-page">
-  <main class="viewer" id="viewer">
-    <div class="status" id="status">Загрузка...</div>
-  </main>
-  <script src="/view.js"></script>
+  <section id="access-panel" class="login-card" hidden>
+    <span class="brand">preza<span>●</span></span>
+    <h1 id="access-title">Презентация</h1>
+    <p class="muted">Для просмотра введите пароль.</p>
+    <form id="access-form">
+      <label for="password">Пароль</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <button type="submit" class="primary">Открыть презентацию</button>
+      <p id="access-message" class="message" role="status"></p>
+    </form>
+  </section>
+  <div id="view-status" class="status" role="status">Загрузка презентации…</div>
+  <header id="viewer-toolbar" class="viewer-toolbar" hidden>
+    <span id="view-title" class="view-title"></span>
+    <span id="show-status" class="show-status" hidden>Показ ведет автор</span>
+    <span id="connection-status" class="connection-status" role="status"></span>
+    <button id="mode-toggle" type="button">Отдельные слайды</button>
+  </header>
+  <main id="viewer" class="viewer" hidden></main>
+  <nav id="viewer-controls" class="viewer-controls" aria-label="Переключение слайдов" hidden>
+    <button id="prev-slide" type="button" aria-label="Предыдущий слайд">←</button>
+    <span id="slide-count" aria-live="polite"></span>
+    <button id="next-slide" type="button" aria-label="Следующий слайд">→</button>
+  </nav>
+  <script src="/assets/view.js"></script>
 </body>
 </html>

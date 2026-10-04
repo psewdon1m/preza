@@ -1,0 +1,17 @@
+name: Checks
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  api-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: docker build --target test -t preza-test -f api/Dockerfile .
+      - run: docker run --rm preza-test
+      - run: |
+          node --check web/admin.js
+          node --check web/view.js
