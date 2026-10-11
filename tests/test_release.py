@@ -31,6 +31,8 @@ def test_signed_bundle_and_exact_version_bootstrap(assets, tmp_path):
                            output / "public-key.pem", "0.0.1") == expected
     safe_extract(output / expected["bundle"]["file"], tmp_path)
     assert (tmp_path / "preza/scripts/install.py").is_file()
+    assert (tmp_path / "preza/scripts/updater.py").is_file()
+    assert (tmp_path / "preza/systemd/preza-updater.service").is_file()
     subprocess.run(["sh", "-n", str(output / "bootstrap.sh")], check=True)
     bootstrap = (output / "bootstrap.sh").read_text()
     assert "@@" not in bootstrap and "BEGIN PUBLIC KEY" in bootstrap

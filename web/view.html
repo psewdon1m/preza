@@ -3,12 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Preza</title>
+  <!-- page-metadata -->
+  <meta name="theme-color" content="#3e6048">
+  <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48 256x256">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/brand/apple-touch-icon.png">
+  <link rel="manifest" href="/assets/brand/site.webmanifest">
   <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body class="viewer-page">
   <section id="access-panel" class="login-card" hidden>
-    <span class="brand">preza<span>●</span></span>
+    <span class="brand"><img class="brand-icon" src="/assets/brand/logo.png" alt="" width="36" height="36">preza</span>
     <h1 id="access-title">Презентация</h1>
     <p class="muted">Для просмотра введите пароль.</p>
     <form id="access-form">
@@ -20,6 +26,7 @@
   </section>
   <div id="view-status" class="status" role="status">Загрузка презентации…</div>
   <header id="viewer-toolbar" class="viewer-toolbar" hidden>
+    <img class="brand-icon viewer-brand-icon" src="/assets/brand/logo.png" alt="Preza" width="28" height="28">
     <span id="view-title" class="view-title"></span>
     <span id="show-status" class="show-status" hidden>Показ ведет автор</span>
     <span id="connection-status" class="connection-status" role="status"></span>

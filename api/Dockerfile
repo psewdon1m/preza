@@ -35,5 +35,6 @@ COPY scripts /app/scripts
 COPY sample.pdf /app/sample.pdf
 COPY compose.production.yml /app/compose.production.yml
 COPY nginx/preza.conf /app/nginx/preza.conf
+COPY systemd /app/systemd
 CMD ["python", "-m", "pytest", "-q", "tests"]
 

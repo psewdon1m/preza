@@ -3,12 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Preza — управление презентациями</title>
+  <!-- page-metadata -->
+  <meta name="theme-color" content="#3e6048">
+  <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48 256x256">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/brand/apple-touch-icon.png">
+  <link rel="manifest" href="/assets/brand/site.webmanifest">
   <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body class="admin-page">
   <section id="login-panel" class="login-card">
-    <a class="brand" href="/admin">preza<span>●</span></a>
+    <a class="brand" href="/admin"><img class="brand-icon" src="/assets/brand/logo.png" alt="" width="36" height="36">preza</a>
     <h1>Ваши презентации</h1>
     <p class="muted">Войдите, чтобы публиковать презентации и управлять показом.</p>
     <form id="login-form">
@@ -20,9 +26,19 @@
   </section>
   <main id="admin-app" class="admin-shell" hidden>
     <header class="admin-header">
-      <div><a class="brand" href="/admin">preza<span>●</span></a><span class="header-caption">Презентации</span></div>
-      <button id="logout-btn" class="quiet" type="button">Выйти</button>
+      <div class="header-brand"><a class="brand" href="/admin"><img class="brand-icon" src="/assets/brand/logo.png" alt="" width="36" height="36">preza</a><span class="header-caption">Презентации</span></div>
+      <div class="header-actions"><button id="updates-toggle" class="quiet" type="button" aria-expanded="false" aria-controls="updates-panel">Обновления</button><button id="logout-btn" class="quiet" type="button">Выйти</button></div>
     </header>
+    <section id="updates-panel" class="updates-panel" aria-labelledby="updates-heading" hidden>
+      <div class="section-heading"><h2 id="updates-heading">Обновление Preza</h2><span id="update-current-version" class="count">Версия —</span></div>
+      <p class="hint">Презентации, ссылки, пароли и настройки сохранятся. Во время перезапуска сайта возможна короткая пауза.</p>
+      <p id="update-message" class="message" role="status" aria-live="polite">Проверяем службу обновления…</p>
+      <div class="actions">
+        <button id="update-check" type="button" disabled>Проверить обновления</button>
+        <button id="update-install" class="primary" type="button" hidden>Установить обновление</button>
+        <button id="update-refresh" type="button" hidden>Перезагрузить страницу</button>
+      </div>
+    </section>
     <div class="workspace">
       <aside class="library">
         <div class="section-heading"><h1>Библиотека</h1><span id="library-count" class="count">0</span></div>

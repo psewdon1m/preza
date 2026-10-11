@@ -20,9 +20,10 @@ from release_verify import fetch_release, sha256, supported_host, validate_versi
 
 ROOT = Path("/opt/exocortex/preza")
 TRUST = Path("/etc/exocortex/release-trust/preza.pem")
+SYSTEMD_UNIT = Path("/etc/systemd/system/preza-updater.service")
 GROUPS = (
     ("OPERATOR INPUT — edit only this section", ("PUBLIC_URL", "ACCESS_KEY", "LISTEN_PORT", "DATA_VOLUME")),
-    ("GENERATED SECRETS — machine-owned", ("SESSION_SECRET", "ADMIN_KEY_HASH")),
+    ("GENERATED SECRETS — machine-owned", ("SESSION_SECRET", "ADMIN_KEY_HASH", "UPDATE_CONTROL_TOKEN")),
     ("RELEASE LOCK — verified manifest, machine-owned", ("VERSION", "PREZA_IMAGE", "MANIFEST_SHA256")),
     ("RUNTIME DEFAULTS", ("PDF_RENDER_DPI", "MAX_UPLOAD_MB", "MAX_PDF_PAGES", "RENDER_TIMEOUT")),
 )
@@ -94,6 +95,7 @@ def prepare():
     release = manifest(directory)
     values = dict(PUBLIC_URL="https://preza.shmoza.net", ACCESS_KEY="", LISTEN_PORT="18480",
                   DATA_VOLUME="preza_presentation_data", SESSION_SECRET=secrets.token_urlsafe(48),
+                  UPDATE_CONTROL_TOKEN=secrets.token_urlsafe(48),
                   ADMIN_KEY_HASH="", PDF_RENDER_DPI="300", MAX_UPLOAD_MB="256",
                   MAX_PDF_PAGES="500", RENDER_TIMEOUT="300")
     write_env(release_locks(values, release, directory))
@@ -136,7 +138,7 @@ def run(command, **options):
 
 def prerequisites():
     supported_host()
-    for executable in ("docker", "curl", "openssl"):
+    for executable in ("docker", "curl", "openssl", "systemctl"):
         if not shutil.which(executable):
             raise RuntimeError("Install the prepared-server prerequisite: " + executable)
     run(["docker", "info"], stdout=subprocess.DEVNULL)
@@ -147,6 +149,7 @@ def prerequisites():
 
 
 def runtime_files(values):
+    ensure_update_control(values)
     verifier = values.get("ADMIN_KEY_HASH", "")
     try:
         algorithm, iterations, salt, digest = verifier.split("$")
@@ -164,6 +167,9 @@ def runtime_files(values):
         write_env(values)
     runtime = dict(DATA_DIR="/data", PUBLIC_URL=values["PUBLIC_URL"], SESSION_SECRET=values["SESSION_SECRET"],
                    ADMIN_KEY_HASH=values["ADMIN_KEY_HASH"],
+                   PREZA_UPDATER_SOCKET="/run/preza-updater/control.sock",
+                   PREZA_UPDATER_TOKEN=values["UPDATE_CONTROL_TOKEN"],
+                   PREZA_UPDATE_GUARD="/run/preza-updater/busy",
                    **{key: values[key] for key in ("PDF_RENDER_DPI", "MAX_UPLOAD_MB", "MAX_PDF_PAGES", "RENDER_TIMEOUT")})
     atomic_write(ROOT / "runtime.env", "".join(key + "=" + value + "\n" for key, value in runtime.items()))
     locks = dict(PREZA_ROOT=str(ROOT), PREZA_IMAGE=values["PREZA_IMAGE"],
@@ -197,7 +203,7 @@ def check_port(values):
                 raise RuntimeError("Port is occupied by another process") from exc
 
 
-def volume_command(values, code, *, backup=None, readonly=False, chown=False):
+def volume_command(values, code, *, backup=None, readonly=False, chown=False, **options):
     command = ["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "0",
                "--cap-drop", "ALL", "--cap-add", "DAC_OVERRIDE",
                "--security-opt", "no-new-privileges:true", "--memory", "256m", "--pids-limit", "64"]
@@ -208,7 +214,94 @@ def volume_command(values, code, *, backup=None, readonly=False, chown=False):
     if backup:
         command.extend(("--mount", "type=bind,source=" + str(backup) + ",target=/backup"))
     command.extend((values["PREZA_IMAGE"], "python", "-c", code))
-    run(command)
+    return run(command, **options)
+
+
+def ensure_update_control(values):
+    if not values.get("UPDATE_CONTROL_TOKEN"):
+        values["UPDATE_CONTROL_TOKEN"] = secrets.token_urlsafe(48)
+        write_env(values)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{64}", values["UPDATE_CONTROL_TOKEN"]):
+        raise ValueError("Invalid generated update-control token")
+    directory = ROOT / "update-control"
+    if directory.is_symlink():
+        raise RuntimeError("Update-control directory must not be a symlink")
+    directory.mkdir(exist_ok=True, mode=0o750)
+    os.chown(directory, 0, 10001)
+    directory.chmod(0o750)
+
+
+def setup_updater(directory):
+    directory = Path(directory)
+    # Explicit rollback to a legacy release remains supported.
+    if not (directory / "scripts/updater.py").is_file():
+        return
+    destination = ROOT / "updater"
+    destination.mkdir(exist_ok=True, mode=0o700)
+    for filename in ("updater.py", "install.py", "release_verify.py"):
+        atomic_write(destination / filename, (directory / "scripts" / filename).read_text(), mode=0o600)
+    atomic_write(SYSTEMD_UNIT, (directory / "systemd/preza-updater.service").read_text(), mode=0o644)
+    run(["systemctl", "daemon-reload"])
+    # Starting an already-running service does not interrupt its update worker.
+    run(["systemctl", "enable", "--now", "preza-updater.service"])
+
+
+def update_guard(active):
+    path = ROOT / "update-control/busy"
+    if active:
+        atomic_write(path, json.dumps({"pid": os.getpid()}), mode=0o644)
+    else:
+        if path.exists():
+            owner = json.loads(path.read_text())["pid"]
+            if owner != os.getpid():
+                try:
+                    os.kill(owner, 0)
+                except ProcessLookupError:
+                    pass
+                else:
+                    return
+        path.unlink(missing_ok=True)
+
+
+DATA_SNAPSHOT = """import hashlib,json,sqlite3
+from pathlib import Path
+root=Path('/data')
+db=sqlite3.connect('file:/data/preza.sqlite3?mode=ro',uri=True)
+db.row_factory=sqlite3.Row
+result={'presentations':[dict(row) for row in db.execute('SELECT * FROM presentations ORDER BY id')],
+        'settings':dict(db.execute('SELECT key,value FROM settings')),'files':{}}
+db.close()
+for path in sorted(root.rglob('*')):
+    relative=path.relative_to(root).as_posix()
+    if relative.split('/')[0]=='.staging' or relative in ('preza.sqlite3','preza.sqlite3-wal','preza.sqlite3-shm'):
+        continue
+    if path.is_symlink(): raise RuntimeError('Presentation data must not contain symlinks')
+    if path.is_file():
+        digest=hashlib.sha256()
+        with path.open('rb') as source:
+            for chunk in iter(lambda:source.read(1024*1024),b''): digest.update(chunk)
+        result['files'][relative]=digest.hexdigest()
+print(json.dumps(result,ensure_ascii=False))
+"""
+
+
+def data_snapshot(values):
+    # SQLite may need its shared-memory sidecar; the SQL connection itself is read-only.
+    result = volume_command(values, DATA_SNAPSHOT, capture_output=True, text=True)
+    return json.loads(result.stdout)
+
+
+def verify_data_snapshot(before, after):
+    if before["files"] != after["files"]:
+        raise RuntimeError("Presentation PDF or slide files changed during update")
+    records = {record["id"]: record for record in after["presentations"]}
+    if set(records) != {record["id"] for record in before["presentations"]}:
+        raise RuntimeError("Presentation library changed during update")
+    for record in before["presentations"]:
+        if any(records[record["id"]].get(key) != value for key, value in record.items()):
+            raise RuntimeError("Presentation links, passwords or settings changed during update")
+    if any(after["settings"].get(key) != value for key, value in before["settings"].items()):
+        raise RuntimeError("Stored application settings changed during update")
 
 
 def own_volume(values):
@@ -265,6 +358,7 @@ def install(values, directory):
     check_port(values)
     run(["docker", "pull", values["PREZA_IMAGE"]])
     runtime_files(values)
+    setup_updater(directory)
     compose(directory, "config", "--quiet")
     own_volume(values)
     start(directory, values)
@@ -320,7 +414,11 @@ def rollback(values, journal):
     runtime_files(previous_values)
     point_current(previous)
     start(previous, previous_values)
+    snapshot = backup / "presentations.json"
+    if snapshot.exists():
+        verify_data_snapshot(json.loads(snapshot.read_text()), data_snapshot(previous_values))
     (ROOT / "update-pending.json").unlink(missing_ok=True)
+    update_guard(False)
     print("Restored healthy previous version:", previous_values["VERSION"])
 
 
@@ -339,6 +437,8 @@ def update(values, directory, version):
         with tempfile.TemporaryDirectory(prefix=".update-", dir=ROOT) as scratch:
             extracted, release = fetch_release(version, TRUST, Path(scratch) / "bundle")
             shutil.move(str(extracted), target)
+    ensure_update_control(values)
+    setup_updater(target)
     candidate = release_locks(values, release, target)
     run(["docker", "pull", candidate["PREZA_IMAGE"]])
     runtime_files(candidate)
@@ -347,26 +447,35 @@ def update(values, directory, version):
     except BaseException:
         runtime_files(values)
         raise
-    compose(directory, "stop", "api")
+    update_guard(True)
     try:
-        backup = backup_data(values)
-    except BaseException:
-        runtime_files(values)
-        start(directory, values)
-        raise
-    journal = dict(previous_version=values["VERSION"], target_version=version,
-                   volume=values["DATA_VOLUME"], backup=str(backup))
-    atomic_write(ROOT / "update-pending.json", json.dumps(journal))
-    try:
-        write_env(candidate)
-        point_current(target)
-        start(target, candidate)
-    except BaseException:
-        print("Update failed; restoring the previous release and its data.", file=sys.stderr)
-        rollback(values, journal)
-        raise
-    atomic_write(ROOT / "previous-update.json", json.dumps(journal))
-    (ROOT / "update-pending.json").unlink(missing_ok=True)
+        compose(directory, "stop", "api")
+        try:
+            before = data_snapshot(values)
+            backup = backup_data(values)
+            atomic_write(backup / "presentations.json", json.dumps(before, ensure_ascii=False))
+            journal = dict(previous_version=values["VERSION"], target_version=version,
+                           volume=values["DATA_VOLUME"], backup=str(backup),
+                           request_id=os.getenv("PREZA_UPDATE_REQUEST_ID"))
+            atomic_write(ROOT / "update-pending.json", json.dumps(journal))
+        except BaseException:
+            runtime_files(values)
+            start(directory, values)
+            raise
+        try:
+            write_env(candidate)
+            point_current(target)
+            start(target, candidate)
+            verify_data_snapshot(before, data_snapshot(candidate))
+        except BaseException:
+            print("Update failed; restoring the previous release and its data.", file=sys.stderr)
+            rollback(values, journal)
+            raise
+        atomic_write(ROOT / "previous-update.json", json.dumps(journal))
+        (ROOT / "update-pending.json").unlink(missing_ok=True)
+    finally:
+        if not (ROOT / "update-pending.json").exists():
+            update_guard(False)
     print("Verified update complete:", version)
     print("Data backup:", backup / "data.tar.gz")
     print("Nginx was not changed or reloaded.")

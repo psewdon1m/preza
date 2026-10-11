@@ -9,6 +9,12 @@ services:
         format: raw
     volumes:
       - presentation_data:/data
+      - type: bind
+        source: ${PREZA_ROOT:?}/update-control
+        target: /run/preza-updater
+        read_only: true
+        bind:
+          create_host_path: true
     read_only: true
     tmpfs:
       - /tmp:size=300m,mode=1777

@@ -11,7 +11,8 @@ from pathlib import Path
 from release_verify import IMAGE_PREFIX, check_public_key, sha256, validate_version, verify_manifest
 
 SOURCE = Path(__file__).resolve().parents[1]
-BUNDLE_FILES = ("compose.production.yml", "nginx/preza.conf", "scripts/install.py", "scripts/release_verify.py")
+BUNDLE_FILES = ("compose.production.yml", "nginx/preza.conf", "scripts/install.py", "scripts/release_verify.py",
+                "scripts/updater.py", "systemd/preza-updater.service")
 
 
 def build_release(version, image, signing_key, output):

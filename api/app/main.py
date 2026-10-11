@@ -11,17 +11,19 @@ import time
 import uuid
 from collections import OrderedDict, deque
 from contextlib import asynccontextmanager
+from html import escape
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .security import hash_password, read_session, sign_session, verify_password
 from .storage import Storage, now, render_pdf, validate_slug
+from .updates import UpdateClient, UpdateServiceError
 
 WEB_DIR = Path(os.getenv("WEB_DIR", str(Path(__file__).resolve().parents[2] / "web")))
 
@@ -81,6 +83,11 @@ class LiveInput(BaseModel):
     slide: int
 
 
+class UpdateInput(BaseModel):
+    version: str = Field(pattern=r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$", max_length=40)
+    request_id: uuid.UUID
+
+
 def verify_verifier_format(value: str) -> bool:
     try:
         kind, rounds, salt, digest = value.split("$")
@@ -121,6 +128,8 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     app = FastAPI(title="Preza", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.storage = storage
+    app.state.updates = UpdateClient(os.getenv("PREZA_UPDATER_SOCKET", ""), os.getenv("PREZA_UPDATER_TOKEN", ""))
+    update_guard = os.getenv("PREZA_UPDATE_GUARD", "")
     app.add_middleware(BodyLimit, limit=max_upload + 1024 * 1024)
 
     @app.middleware("http")
@@ -148,6 +157,9 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             origin(request)
             if not hmac.compare_digest(request.headers.get("x-csrf-token", ""), session["csrf"]):
                 raise HTTPException(403, "Сессия устарела. Обновите страницу")
+            if (request.url.path.startswith("/api/admin/presentations")
+                    and update_guard and Path(update_guard).exists()):
+                raise HTTPException(409, "Сейчас выполняется обновление. Изменение презентаций временно приостановлено.")
         return session
 
     def record_or_404(*, id=None, slug=None):
@@ -235,6 +247,27 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     @app.get("/api/admin/presentations", dependencies=[Depends(admin)])
     async def list_presentations():
         return {"presentations": [state(record, owner=True) for record in storage.all()]}
+
+    async def update_request(method, path, body=None):
+        try:
+            return await asyncio.to_thread(app.state.updates.request, method, path, body)
+        except UpdateServiceError as exc:
+            raise HTTPException(exc.status, exc.detail) from exc
+
+    @app.get("/api/admin/updates", dependencies=[Depends(admin)])
+    async def update_status():
+        if not app.state.updates.enabled:
+            return {"enabled": False, "current_version": os.getenv("PREZA_VERSION", "development"),
+                    "latest_version": None, "update_available": False, "updating": False, "job": None}
+        return await update_request("GET", "/status")
+
+    @app.post("/api/admin/updates/check", dependencies=[Depends(admin)])
+    async def check_updates():
+        return await update_request("POST", "/check", {})
+
+    @app.post("/api/admin/updates", status_code=202, dependencies=[Depends(admin)])
+    async def request_update(body: UpdateInput):
+        return await update_request("POST", "/update", {"version": body.version, "request_id": str(body.request_id)})
 
     def validate_fields(title, slug):
         title = title.strip()
@@ -455,15 +488,53 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(404, "Презентация не найдена")
         return RedirectResponse(f"/p/{record['slug']}", status_code=302)
 
+    def page_response(template: str, *, title: str, description: str, path: str):
+        image_url = escape(public_url + "/assets/brand/social-preview.jpg", quote=True)
+        page_url = escape(public_url + path, quote=True)
+        title = escape(title, quote=True)
+        description = escape(description, quote=True)
+        metadata = f"""<title>{title}</title>
+  <meta name="description" content="{description}">
+  <link rel="canonical" href="{page_url}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Preza">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:title" content="{title}">
+  <meta property="og:description" content="{description}">
+  <meta property="og:url" content="{page_url}">
+  <meta property="og:image" content="{image_url}">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Preza — The Bridge At Narni">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{title}">
+  <meta name="twitter:description" content="{description}">
+  <meta name="twitter:image" content="{image_url}">
+  <meta name="twitter:image:alt" content="Preza — The Bridge At Narni">"""
+        html = (WEB_DIR / template).read_text(encoding="utf-8")
+        html = html.replace("<!-- page-metadata -->", metadata)
+        version = quote(os.getenv("PREZA_VERSION", "development"), safe="")
+        for asset in ("styles.css", "admin.js", "view.js"):
+            html = html.replace(f'"/assets/{asset}"', f'"/assets/{asset}?v={version}"')
+        return HTMLResponse(html)
+
+    @app.get("/favicon.ico")
+    async def favicon():
+        return FileResponse(WEB_DIR / "brand" / "favicon.ico", media_type="image/vnd.microsoft.icon")
+
     @app.get("/admin")
     @app.get("/admin/")
     async def admin_page():
-        return FileResponse(WEB_DIR / "admin.html")
+        return page_response("admin.html", title="Preza — управление презентациями",
+                             description="Публикуйте PDF-презентации, делитесь ссылками и управляйте показом.",
+                             path="/admin")
 
     @app.get("/p/{slug}")
     async def viewer_page(slug: str):
-        record_or_404(slug=slug)
-        return FileResponse(WEB_DIR / "view.html")
+        record = record_or_404(slug=slug)
+        return page_response("view.html", title=record["title"] + " — Preza",
+                             description="Откройте презентацию на Preza.", path=f"/p/{record['slug']}")
 
     app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
     return app

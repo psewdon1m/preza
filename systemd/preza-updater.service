@@ -1,0 +1,22 @@
+[Unit]
+Description=Preza signed release update service
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/exocortex/preza/updater/updater.py
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/etc/systemd/system
+ProtectHome=true
+TimeoutStopSec=900
+
+[Install]
+WantedBy=multi-user.target

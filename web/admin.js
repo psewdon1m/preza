@@ -2,6 +2,9 @@
 const $ = (id) => document.getElementById(id);
 let csrf = "", presentations = [], selected = null, previewIndex = 0;
 let busy = false, previewBusy = false, slugTouched = false;
+let updateState = null, updateBusy = false, updateInProgress = false, updateTimer = null;
+let pendingUpdate = null;
+try { pendingUpdate = JSON.parse(localStorage.getItem("preza-update-request") || "null"); } catch { /* Storage is optional. */ }
 
 function message(text = "", error = false, target = "message") {
   $(target).textContent = text;
@@ -9,6 +12,7 @@ function message(text = "", error = false, target = "message") {
 }
 
 function showLogin() {
+  clearTimeout(updateTimer);
   csrf = "";
   selected = null;
   presentations = [];
@@ -37,11 +41,124 @@ async function api(path, options = {}) {
 
 function setBusy(value) {
   busy = value;
-  $("presentation-form").querySelectorAll("button, input, select").forEach((el) => { el.disabled = value; });
-  $("new-btn").disabled = value;
-  $("logout-btn").disabled = value;
+  const disabled = value || updateInProgress;
+  $("presentation-form").querySelectorAll("button, input, select").forEach((el) => { el.disabled = disabled; });
+  $("new-btn").disabled = disabled;
+  $("welcome-new-btn").disabled = disabled;
+  $("logout-btn").disabled = disabled;
   renderPreview();
+  renderUpdateButtons();
 }
+
+function rememberUpdate(request) {
+  pendingUpdate = request;
+  try {
+    if (request) localStorage.setItem("preza-update-request", JSON.stringify(request));
+    else localStorage.removeItem("preza-update-request");
+  } catch { /* The current page can still follow the update without storage. */ }
+}
+
+function renderUpdateButtons() {
+  const disabled = busy || previewBusy || updateBusy || updateInProgress || !updateState?.enabled;
+  $("update-check").disabled = disabled;
+  $("update-install").disabled = disabled;
+  $("update-install").hidden = !updateState?.update_available;
+  if (updateState?.latest_version) $("update-install").textContent = "Обновить до " + updateState.latest_version;
+  $("update-refresh").hidden = updateState?.job?.state !== "completed";
+}
+
+function scheduleUpdatePoll() {
+  clearTimeout(updateTimer);
+  if (csrf) updateTimer = setTimeout(loadUpdates, 2000);
+}
+
+function applyUpdateState(data) {
+  updateState = data;
+  updateInProgress = data.updating;
+  $("update-current-version").textContent = "Версия " + data.current_version;
+  let text = "Нажмите «Проверить обновления», чтобы найти новую версию.";
+  let error = false;
+  if (!data.enabled) {
+    rememberUpdate(null);
+    text = "Служба обновления не подключена. Установите серверную версию Preza с поддержкой обновлений.";
+  }
+  else if (data.updating) text = data.job?.message || "Выполняется обновление. Ожидаем перезапуска сайта…";
+  else if (data.job && ["completed", "failed", "recovery_required"].includes(data.job.state)) {
+    text = data.job.message;
+    error = data.job.state !== "completed";
+  } else if (data.checked_at) text = data.update_available ? "Доступна версия " + data.latest_version + "." : "Новых версий пока нет.";
+  message(text, error, "update-message");
+  if (pendingUpdate && data.job?.id === pendingUpdate.request_id && !data.updating) {
+    rememberUpdate(null);
+    loadList().catch(() => {});
+  }
+  setBusy(busy);
+  if (data.updating || pendingUpdate) scheduleUpdatePoll();
+}
+
+async function loadUpdates() {
+  try {
+    const data = await api("/api/admin/updates");
+    if (pendingUpdate && data.enabled && !data.updating && data.job?.id !== pendingUpdate.request_id) {
+      // Repeating the same request is safe if the original response was lost during restart.
+      if (data.current_version === pendingUpdate.version) rememberUpdate(null);
+      else {
+        try {
+          const resumed = await api("/api/admin/updates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pendingUpdate) });
+          applyUpdateState(resumed);
+          return;
+        } catch (err) {
+          rememberUpdate(null);
+          applyUpdateState(data);
+          message(err.message, true, "update-message");
+          return;
+        }
+      }
+    }
+    applyUpdateState(data);
+  } catch (err) {
+    message(updateInProgress || pendingUpdate ? "Ожидаем возвращения сайта после перезапуска…" : err.message, !(updateInProgress || pendingUpdate), "update-message");
+    if (updateInProgress || pendingUpdate) scheduleUpdatePoll();
+  }
+}
+
+async function resumeUpdates() {
+  if (pendingUpdate) {
+    $("updates-panel").hidden = false;
+    $("updates-toggle").setAttribute("aria-expanded", "true");
+  }
+  await loadUpdates();
+}
+
+$("updates-toggle").addEventListener("click", () => {
+  $("updates-panel").hidden = !$("updates-panel").hidden;
+  $("updates-toggle").setAttribute("aria-expanded", String(!$("updates-panel").hidden));
+  if (!$("updates-panel").hidden) loadUpdates();
+});
+$("update-check").addEventListener("click", async () => {
+  updateBusy = true;
+  renderUpdateButtons();
+  message("Проверяем опубликованные версии…", false, "update-message");
+  try {
+    const data = await api("/api/admin/updates/check", { method: "POST" });
+    applyUpdateState(data);
+    if (!data.updating) message(data.update_available ? "Доступна версия " + data.latest_version + "." : "Новых версий пока нет.", false, "update-message");
+  } catch (err) { message(err.message, true, "update-message"); }
+  finally { updateBusy = false; renderUpdateButtons(); }
+});
+$("update-install").addEventListener("click", async () => {
+  if (!updateState?.update_available || updateBusy || busy || previewBusy || updateInProgress) return;
+  rememberUpdate({ version: updateState.latest_version, request_id: crypto.randomUUID() });
+  updateBusy = true;
+  updateInProgress = true;
+  setBusy(busy);
+  message("Запрашиваем обновление…", false, "update-message");
+  try {
+    applyUpdateState(await api("/api/admin/updates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pendingUpdate) }));
+  } catch { scheduleUpdatePoll(); }
+  finally { updateBusy = false; renderUpdateButtons(); }
+});
+$("update-refresh").addEventListener("click", () => location.reload());
 
 function renderList() {
   $("library-count").textContent = String(presentations.length);
@@ -126,7 +243,7 @@ async function openEditor(id) {
 }
 
 function newPresentation() {
-  if (busy || previewBusy) return;
+  if (busy || previewBusy || updateInProgress) return;
   populate(null);
   message();
   $("title").focus();
@@ -137,7 +254,7 @@ function renderPreview() {
   $("live-badge").hidden = !selected.live_active;
   $("live-btn").textContent = selected.live_active ? "Завершить показ" : "Начать показ";
   $("live-btn").classList.toggle("primary", !selected.live_active);
-  $("live-btn").disabled = busy || previewBusy;
+  $("live-btn").disabled = busy || previewBusy || updateInProgress;
   $("preview-hint").textContent = selected.live_active
     ? "Зрители видят этот слайд. Используйте кнопки или стрелки клавиатуры, чтобы продолжить показ."
     : "Слайды переключаются только в превью. Начните показ, чтобы управлять просмотром зрителей.";
@@ -150,7 +267,7 @@ function renderPreview() {
 }
 
 async function controlLive(active, index) {
-  if (!selected || busy || previewBusy) return;
+  if (!selected || busy || previewBusy || updateInProgress) return;
   previewBusy = true;
   renderPreview();
   try {
@@ -185,6 +302,7 @@ $("login-form").addEventListener("submit", async (event) => {
     $("login-panel").hidden = true;
     $("admin-app").hidden = false;
     await loadList();
+    await resumeUpdates();
     message("", false, "login-message");
   } catch (err) { message(err.message, true, "login-message"); }
   finally { button.disabled = false; }
@@ -192,7 +310,7 @@ $("login-form").addEventListener("submit", async (event) => {
 
 $("presentation-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (busy || previewBusy) return;
+  if (busy || previewBusy || updateInProgress) return;
   const data = new FormData();
   const creating = !selected;
   data.set("title", $("title").value);
@@ -277,6 +395,7 @@ window.addEventListener("keydown", (event) => {
       $("login-panel").hidden = true;
       $("admin-app").hidden = false;
       await loadList();
+      await resumeUpdates();
     }
   } catch (err) { message(err.message, true, "login-message"); }
 })();
